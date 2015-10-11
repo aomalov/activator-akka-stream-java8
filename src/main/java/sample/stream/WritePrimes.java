@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 
 import akka.stream.*;
@@ -28,6 +30,8 @@ public class WritePrimes {
     final ActorSystem system = ActorSystem.create("Sys");
     final ActorMaterializer materializer = ActorMaterializer.create(system);
 
+      ArrayList<Integer> lst=new ArrayList<>(1000);
+      for(int k=0;k<1000;k++) lst.add(Integer.valueOf(k));
     // generate random numbers
     final int maxRandomNumberSize = 1000000;
     final Source<Integer, BoxedUnit> primeSource = Source.from(new RandomIterable(maxRandomNumberSize,10000)).
@@ -36,23 +40,19 @@ public class WritePrimes {
         // and neighbor +2 is also prime
         filter(prime -> isPrime(prime + 2));
 
-    final Source<Integer, BoxedUnit> intSource = Source.from(new RandomIterable(maxRandomNumberSize,1000));
+    //final Source<Integer, BoxedUnit> intSource = Source.from(new RandomIterable(maxRandomNumberSize,1000));
+      //final Source<Integer, BoxedUnit> intSource = Source.from(new StraightIterable(1000));
+      final Source<Integer, BoxedUnit> intSource = Source.from(lst);
 
     // write to file sink
-    Sink<ByteString, Future<Long>> output;
-      output = SynchronousFileSink.create(new File("target/primes.txt"));
-      Sink<Integer, Future<Long>> slowSink =
-      Flow.of(Integer.class)
-      .map(i -> {
-        // simulate slow consumer
-        Thread.sleep(1000);
-        return ByteString.fromString(i.toString());
-      }).<Future<Long>, Future<Long>>toMat(output, (unit, flong) -> flong);
+      final PrintWriter writeToFile = new PrintWriter(new FileOutputStream("target/primes.txt"), true);
+      Sink<Integer, Future<BoxedUnit>> fileSink = Sink.foreach(i -> writeToFile.println(i));
 
-    // console output sink
+
+      // console output sink
     Sink<Integer, Future<BoxedUnit>> consoleSink = Sink.foreach(i -> System.out.println(String.format("Quick sink : %s",i)));
 
-    Sink<Integer, Future<BoxedUnit>> consoleSink2 = Sink.foreach(i -> System.out.println(String.format("Slow sink - %s",i)));
+    Sink<Integer, Future<BoxedUnit>> consoleSink2 = Sink.foreach(i -> System.out.println(String.format("=================Slow sink : %s",i)));
 
       FlowGraph.factory().closed(builder -> {
           //final Outlet<Integer> intSrc = builder.source(Source.from(new RandomIterable(maxRandomNumberSize,10000)));
@@ -60,17 +60,22 @@ public class WritePrimes {
           //final UniformFanOutShape<Integer, Integer> fanoutBroadcast = builder.graph(Broadcast.create(2));
           final UniformFanOutShape<Integer, Integer> fanoutBalance = builder.graph(Balance.create(2));
 
-          final UniformFanInShape<Integer, Integer> faninMerger = builder.graph(Merge.create(2));
+          //final UniformFanInShape<Integer, Integer> faninMerger = builder.graph(Merge.create(2));
 
-          final FlowShape<Integer, Integer> primeFilter = builder.graph(Flow.of(Integer.class).filter(i -> isPrime(i)));
+          final FlowShape<Integer, Integer> primeFilter = builder.graph(Flow.of(Integer.class).filter(i -> isPrime(i)).filter(i -> isPrime(i+2)));
           final FlowShape<Integer, Integer> transfNeg = builder.graph(Flow.of(Integer.class).map(i -> -i));
 
           //final Inlet<Integer> G = builder.sink(Sink.foreach(System.out::println));
 
-          builder.from(intSource).to(fanoutBalance);
-          builder.from(fanoutBalance).via(primeFilter).via(transfNeg).to(faninMerger);   //to(consoleSink2);
-          builder.from(fanoutBalance).via(faninMerger).to(consoleSink);
+          builder.from(intSource).via(fanoutBalance).via(primeFilter).via(transfNeg).to(consoleSink2);   //to(consoleSink2);
+          builder.from(fanoutBalance).to(consoleSink);
       }).run(materializer);
+
+      writeToFile.close();
+
+      //TODO:  create consume code - for completing the flow - to shut down everything
+
+      //TODO: try to fold to summ up both output sinks - how many values arrived to each sink
 
     // connect the graph, materialize and retrieve the completion Future
 /*    final Future<Long> future = FlowGraph.factory().closed(slowSink, (b, sink) -> {
@@ -89,6 +94,7 @@ public class WritePrimes {
   }
 
   private static boolean isPrime(int n) {
+      //System.out.println("testing : "+n);
     if (n <= 1)
       return false;
     else if (n == 2)
