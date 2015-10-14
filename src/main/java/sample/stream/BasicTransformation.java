@@ -2,6 +2,12 @@ package sample.stream;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.concurrent.Future;
+
+import akka.dispatch.Futures;
+
+import org.reactivestreams.Subscriber;
+import scala.collection.mutable.Publisher;
 import scala.runtime.BoxedUnit;
 import akka.actor.ActorSystem;
 import akka.dispatch.OnComplete;
@@ -19,7 +25,11 @@ public class BasicTransformation {
       "when an unknown printer took a galley of type and scrambled it to make a type " +
       "specimen book.";
 
-    Source.from(Arrays.asList(text.split("\\s"))).
+    //Source.from(Arrays.asList(text.split("\\s"))).
+    //Source.repeat()
+
+
+    Source.from(Futures.successful("OK")).
       // transform
       map(line -> line.toUpperCase()).
       // print to console
