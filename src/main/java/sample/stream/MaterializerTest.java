@@ -32,6 +32,7 @@ public class MaterializerTest {
 
         final Future<Integer> sum = counter.run(materializer);
 
+
         sum.foreach(new Foreach<Integer>() {
             public void each(Integer c) {
                 System.out.println("Total tweets processed: " + c);
