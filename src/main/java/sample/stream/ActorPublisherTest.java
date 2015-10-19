@@ -15,6 +15,7 @@ import akka.stream.impl.ActorPublisher;
 import akka.stream.javadsl.Flow;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
+import com.timcharper.acked.AckedSource;
 import org.reactivestreams.Publisher;
 import scala.runtime.BoxedUnit;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
@@ -146,19 +147,17 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         }
     }
 
-    public static void main(String[] args) throws InterruptedException {
-
+    public static void testGenericActors() throws InterruptedException {
         final ActorSystem system = ActorSystem.create("Sys");
         final ActorMaterializer mat = ActorMaterializer.create(system);
         final ActorRef pub = system.actorOf(JobManager.props());
 
         Publisher<JobManagerProtocol.Job> iPub = AbstractActorPublisher.create(pub);
+        refPublisherActor=pub;
+        refPublisherActor.tell(new JobManagerProtocol.Job("0000000a"), ActorRef.noSender());  // Works even before the flow is closed and materialized :))
 
         //final Source<JobManagerProtocol.Job, ActorRef> jobManagerSource = Source.actorPublisher(JobManager.props());
-
-        final Flow<JobManagerProtocol.Job, JobManagerProtocol.Job, BoxedUnit> bufferedFlow = Flow.of(JobManagerProtocol.Job.class).buffer(10, OverflowStrategy.backpressure());
-
-                Source.from(iPub)
+        Source.from(iPub)
                 //refPublisherActor =
                 // jobManagerSource
                 //.buffer(6,OverflowStrategy.backpressure())
@@ -175,7 +174,7 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
                 .run(mat);
 
         //Refer to the Publisher Actor and send it a Msg
-        refPublisherActor=pub;
+
 
         refPublisherActor.tell(new JobManagerProtocol.Job("a"), ActorRef.noSender());
         refPublisherActor.tell(new JobManagerProtocol.Job("b"), ActorRef.noSender());
@@ -192,4 +191,31 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         Thread.sleep(5000);
         refPublisherActor.tell(new JobManagerProtocol.Job("kkk"), ActorRef.noSender());
     }
+
+    public static void main(String[] args) throws InterruptedException {
+
+        //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
+//        final ActorSystem system = ActorSystem.create("Sys");
+//        final ActorMaterializer mat = ActorMaterializer.create(system);
+//        final ActorRef pub = system.actorOf(JobManager.props());
+//
+//
+//        AckedSource<JobManagerProtocol.Job,ActorRef> src=new AckedSource<>();
+//
+//        src.runForeach(job-> {System.out.println(job.payload);},mat);
+
+
+
+
+
+
+
+
+
+
+
+        testGenericActors();
+    }
+
+
 }
