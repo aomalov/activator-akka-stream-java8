@@ -39,7 +39,9 @@ public class CallableFutureTest {
         // now retrieve the result
         for (Future<Long> future : list) {
             try {
-                sum += future.get();
+                sum += future.get(); //here we get locked until we can return a result of a long computation
+                //total waiting time is somewhat similar to the longest task + smth on iteration - all the rest are running in a separate thread
+                //and might be ready by the moment
             } catch (InterruptedException e) {
                 e.printStackTrace();
             } catch (ExecutionException e) {

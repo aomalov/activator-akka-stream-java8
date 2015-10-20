@@ -2,28 +2,27 @@ package sample.stream;
 
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
+import akka.pattern.Patterns;
 import akka.actor.Props;
-import akka.dispatch.Futures;
-import akka.japi.Creator;
 import akka.japi.pf.ReceiveBuilder;
 import akka.stream.ActorMaterializer;
-import akka.stream.FlowShape;
-import akka.stream.OverflowStrategy;
 import akka.stream.actor.AbstractActorPublisher;
 import akka.stream.actor.ActorPublisherMessage;
-import akka.stream.impl.ActorPublisher;
-import akka.stream.javadsl.Flow;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
-import com.timcharper.acked.AckedSource;
+import akka.util.Timeout;
 import org.reactivestreams.Publisher;
-import scala.runtime.BoxedUnit;
+import scala.concurrent.Await;
+import scala.concurrent.duration.Duration;
+import scala.concurrent.duration.FiniteDuration;
+import scala.reflect.ClassTag$;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by andrewm on 10/14/2015.
@@ -34,11 +33,8 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
     
     @Override
     public boolean onSyncMessage(byte[] message) {
-        if(!refPublisherActor.isTerminated()) {
-            refPublisherActor.tell(new JobManagerProtocol.Job(message.toString()),ActorRef.noSender());
-            return true;
-        }
-        return false;
+        refPublisherActor.tell(new JobManagerProtocol.Job(message.toString()),ActorRef.noSender());
+        return true;
     }
 
     @Override
@@ -192,29 +188,41 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         refPublisherActor.tell(new JobManagerProtocol.Job("kkk"), ActorRef.noSender());
     }
 
-    public static void main(String[] args) throws InterruptedException {
+    static void testAckedActors() throws Exception {
+        final ActorSystem system = ActorSystem.create("Sys");
+        final ActorMaterializer mat = ActorMaterializer.create(system);
+        final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest.props());
+        final Publisher<AckedFlowMsg<String>> iPub = AbstractActorPublisher.create(ackedMat);
+
+        Source.from(iPub).runWith(Sink.actorSubscriber((ActorAckedSubscriberTest.props())), mat);
+
+        //System.out.println(ackedMat);
+        scala.concurrent.Future<CompletableFuture<String>> future = Patterns.ask(ackedMat, "test", 1000).mapTo(ClassTag$.MODULE$.apply(CompletableFuture.class));
+        //Wait to get the CF to acknowledgement promise
+        CompletableFuture<String> response = Await.result(future, new FiniteDuration(2, TimeUnit.SECONDS));
+        //Wait till ack is completed actually
+        String result=response.get(2,TimeUnit.SECONDS);
+        System.out.println("Got the ACK completion result: "+result);
+
+        for(int k=0;k<100;k++){
+            future = Patterns.ask(ackedMat, "test_" + (k + 1), new Timeout(100,TimeUnit.MICROSECONDS)).mapTo(ClassTag$.MODULE$.apply(CompletableFuture.class));
+            response = Await.result(future, new FiniteDuration(100, TimeUnit.MICROSECONDS));
+            //Wait till ack is completed actually
+            result=response.get(100,TimeUnit.MICROSECONDS);
+        }
+
+        Patterns.ask(ackedMat, "Stop", 100);
+        system.shutdown();
+
+    }
+
+    public static void main(String[] args) throws Exception {
 
         //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
-//        final ActorSystem system = ActorSystem.create("Sys");
-//        final ActorMaterializer mat = ActorMaterializer.create(system);
-//        final ActorRef pub = system.actorOf(JobManager.props());
-//
-//
-//        AckedSource<JobManagerProtocol.Job,ActorRef> src=new AckedSource<>();
-//
-//        src.runForeach(job-> {System.out.println(job.payload);},mat);
 
 
-
-
-
-
-
-
-
-
-
-        testGenericActors();
+        testAckedActors();
+        //testGenericActors();
     }
 
 
