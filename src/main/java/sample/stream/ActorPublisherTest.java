@@ -2,20 +2,24 @@ package sample.stream;
 
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
+import akka.dispatch.OnSuccess;
+import akka.japi.Pair;
 import akka.pattern.Patterns;
 import akka.actor.Props;
 import akka.japi.pf.ReceiveBuilder;
 import akka.stream.ActorMaterializer;
 import akka.stream.actor.AbstractActorPublisher;
 import akka.stream.actor.ActorPublisherMessage;
+import akka.stream.javadsl.Keep;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import akka.util.Timeout;
 import org.reactivestreams.Publisher;
 import scala.concurrent.Await;
-import scala.concurrent.duration.Duration;
+import scala.concurrent.ExecutionContext;
 import scala.concurrent.duration.FiniteDuration;
 import scala.reflect.ClassTag$;
+import scala.runtime.BoxedUnit;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.util.ArrayList;
@@ -191,24 +195,34 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
     static void testAckedActors() throws Exception {
         final ActorSystem system = ActorSystem.create("Sys");
         final ActorMaterializer mat = ActorMaterializer.create(system);
-        final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest.props());
-        final Publisher<AckedFlowMsg<String>> iPub = AbstractActorPublisher.create(ackedMat);
+        final ActorRef ackedMat;
+        //ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest.props());
+        //final Publisher<AckedFlowMsg<String>> iPub = AbstractActorPublisher.create(ackedMat);
 
-        Source.from(iPub).runWith(Sink.actorSubscriber((ActorAckedSubscriberTest.props())), mat);
+        //Source.from(iPub).runWith(Sink.actorSubscriber((ActorAckedSubscriberTest.props())), mat);
 
-        //System.out.println(ackedMat);
-        scala.concurrent.Future<CompletableFuture<String>> future = Patterns.ask(ackedMat, "test", 1000).mapTo(ClassTag$.MODULE$.apply(CompletableFuture.class));
+
+        //Pair<BoxedUnit,ActorRef> graphMat= Source.from(iPub).toMat(Sink.actorSubscriber(ActorAckedSubscriberTest.props()), Keep.both()).run(mat);
+        final Source<AckedFlowMsg<String>, ActorRef> src2 = Source.actorPublisher(ActorAckedPublisherTest.props());
+        Pair<ActorRef,ActorRef> graphMat2= src2.toMat(Sink.actorSubscriber(ActorAckedSubscriberTest.props()), Keep.both()).run(mat);
+        ackedMat=graphMat2.first();
+
+        System.out.println(graphMat2.first());
+        System.out.println(graphMat2.second());
+
+
+        scala.concurrent.Future<CompletableFuture<String>> future = Patterns.ask(ackedMat, "test FIRST with callback", 1000).mapTo(ClassTag$.MODULE$.apply(CompletableFuture.class));
         //Wait to get the CF to acknowledgement promise
         CompletableFuture<String> response = Await.result(future, new FiniteDuration(2, TimeUnit.SECONDS));
         //Wait till ack is completed actually
-        String result=response.get(2,TimeUnit.SECONDS);
+        String result=response.get(2,TimeUnit.MILLISECONDS);
         System.out.println("Got the ACK completion result: "+result);
 
         for(int k=0;k<100;k++){
-            future = Patterns.ask(ackedMat, "test_" + (k + 1), new Timeout(100,TimeUnit.MICROSECONDS)).mapTo(ClassTag$.MODULE$.apply(CompletableFuture.class));
-            response = Await.result(future, new FiniteDuration(100, TimeUnit.MICROSECONDS));
+            future = Patterns.ask(ackedMat, "test_" + (k + 1), new Timeout(3000,TimeUnit.MICROSECONDS)).mapTo(ClassTag$.MODULE$.apply(CompletableFuture.class));
+            response = Await.result(future, new FiniteDuration(3000, TimeUnit.MICROSECONDS));
             //Wait till ack is completed actually
-            result=response.get(100,TimeUnit.MICROSECONDS);
+            result=response.get(3000,TimeUnit.MICROSECONDS);
         }
 
         Patterns.ask(ackedMat, "Stop", 100);
@@ -216,14 +230,46 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
 
     }
 
+    public static void testAckedLibSource() throws Exception {
+        final ActorSystem system = ActorSystem.create("Sys");
+        final ActorMaterializer mat = ActorMaterializer.create(system);
+        final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest2.props());
+        final ExecutionContext ec=system.dispatcher();
+
+        //final Source<Tuple2<Promise<BoxedUnit>,String>, ActorRef> src2 = Source.actorPublisher(ActorAckedPublisherTest2.props());
+        //AckedSource<String,ActorRef> src3= ScalaHelper.javaPublisherAckedSource(src2.asScala());
+        ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);
+        ackedMat.tell("test2", ActorRef.noSender());
+
+        //akka.dispatch.Futures.future - and also Promise is there in the Package for the sake of convenience
+        scala.concurrent.Future<scala.concurrent.Future<BoxedUnit>> future = Patterns.ask(ackedMat, "test with Callback", new Timeout(300, TimeUnit.MICROSECONDS))
+                .mapTo(ClassTag$.MODULE$.apply(scala.concurrent.Future.class));
+        //Wait to get the CF to acknowledgement promise
+        scala.concurrent.Future<BoxedUnit> responseFuture = Await.result(future, new FiniteDuration(2, TimeUnit.MILLISECONDS));
+        //Wait till ack is completed actually or set a hook
+        responseFuture.onSuccess(new OnSuccess<BoxedUnit>() {
+            public void onSuccess(BoxedUnit result) {
+                System.out.println("GOT the [test] SUCCESS ACK hook");
+                ackedMat.tell("Stop",ActorRef.noSender());
+                system.shutdown();
+            }
+        }, ec);
+        //Await.result(responseFuture, new FiniteDuration(2, TimeUnit.SECONDS));
+        //System.out.println("Got the ACK completion result: ");
+    }
+
     public static void main(String[] args) throws Exception {
 
         //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
 
+        testAckedLibSource();
 
-        testAckedActors();
+
+        //testAckedActors();
         //testGenericActors();
     }
+
+
 
 
 }

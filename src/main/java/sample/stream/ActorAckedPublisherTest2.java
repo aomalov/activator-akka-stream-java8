@@ -4,6 +4,9 @@ import akka.actor.Props;
 import akka.japi.pf.ReceiveBuilder;
 import akka.stream.actor.AbstractActorPublisher;
 import akka.stream.actor.ActorPublisherMessage;
+import scala.Tuple2;
+import scala.concurrent.Promise;
+import scala.runtime.BoxedUnit;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,28 +14,31 @@ import java.util.List;
 /**
  * Created by andrewm on 10/20/2015.
  */
-public class ActorAckedPublisherTest extends AbstractActorPublisher<AckedFlowMsg<String>> {
-    public static Props props() { return Props.create(ActorAckedPublisherTest.class); }
+public class ActorAckedPublisherTest2 extends AbstractActorPublisher<Tuple2<Promise<BoxedUnit>,String>> {
+    public static Props props() { return Props.create(ActorAckedPublisherTest2.class); }
 
-    private final List<AckedFlowMsg<String>> buf = new ArrayList<>();
+    private final List<Tuple2<Promise<BoxedUnit>,String>> buf = new ArrayList<>();
 
-    public ActorAckedPublisherTest () {
+    public ActorAckedPublisherTest2() {
         receive(ReceiveBuilder.
                 match(ActorPublisherMessage.Request.class, request -> {
                     System.out.println("deliver on request if something in buffer  [" + buf.size() + "] for demanded :" + totalDemand());
                     deliverBuf();
                 }).
                 match(ActorPublisherMessage.Cancel.class, cancel -> context().stop(self())).
-                matchEquals("Stop",ev -> {
-                   onCompleteThenStop();
+                matchEquals("Stop", ev -> {
+                    System.out.println("Stopping the PUBLISHER");
+                    onCompleteThenStop();
                 }).
                 match(String.class, msgStr -> {
                     System.out.println("  msg accepted to flow [" + msgStr + "] while  demanded: " + totalDemand());
-                    AckedFlowMsg<String> msg = new AckedFlowMsg<>(msgStr);
-                    System.out.println("Sending CompletedFuture back to "+sender());
-                    sender().tell(msg.ackPromise, self()); //return the CompletableFuture
+                    Tuple2<Promise<BoxedUnit>, String> msg = ScalaHelper.createAckTup(context().dispatcher(), msgStr);
+                    if (sender() != context().system().deadLetters()) {
+                        sender().tell(msg._1().future(), self()); //return the Future to wait on
+                        System.out.println("Sending SCALA Future on [" + msgStr + "] back to " + sender());
+                    }
                     if (buf.isEmpty() && totalDemand() > 0) {
-                        System.out.println("deliver without buf - " + msg.msgData);
+                        System.out.println("deliver without buf - " + msg._2());
                         onNext(msg);
                     } else {
                         System.out.println("delivering with initial buffer of " + buf.size());
@@ -47,14 +53,14 @@ public class ActorAckedPublisherTest extends AbstractActorPublisher<AckedFlowMsg
         while (totalDemand() > 0 && buf.size()>0) {
             if (totalDemand() <= Integer.MAX_VALUE) {
                 System.out.println("buffer size before delivery "+buf.size() + " of demanded " + totalDemand() );
-                final List<AckedFlowMsg<String>> took =
+                final List<Tuple2<Promise<BoxedUnit>,String>> took =
                         buf.subList(0, Math.min(buf.size(), (int) totalDemand()));
                 took.forEach(this::onNext);
                 buf.removeAll(took);
                 System.out.println("buffer size after delivery "+buf.size() + " demanded yet " + totalDemand());
                 break;
             } else {
-                final List<AckedFlowMsg<String>> took =
+                final List<Tuple2<Promise<BoxedUnit>,String>> took =
                         buf.subList(0, Math.min(buf.size(), Integer.MAX_VALUE));
                 took.forEach(this::onNext);
                 buf.removeAll(took);

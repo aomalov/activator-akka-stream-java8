@@ -1,5 +1,9 @@
 package sample.stream;
 
+import scala.Unit;
+import scala.compat.java8.FutureConverters;
+import scala.concurrent.Promise;
+
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -14,10 +18,10 @@ public class AckedFlowMsg<T> {
         this.ackPromise = new CompletableFuture<>();
         this.ackPromise.handle((ok, ex) -> {
             if (ok != null) {
-                System.out.println("ACKED from inside - "+ok);
+                System.out.println("ACKED from inside - " + ok);
                 return 1;
             } else {
-                System.out.println("Problem -"+ ex);
+                System.out.println("Problem -" + ex);
                 return 0;
             }
         });
