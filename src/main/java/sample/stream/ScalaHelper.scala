@@ -1,12 +1,13 @@
 package sample.stream
 
+import java.util.concurrent.CompletionStage
+
 import akka.actor.ActorRef
 import akka.stream.actor.ActorPublisher
-import akka.stream.scaladsl.{Source, RunnableGraph}
-import com.timcharper.acked.{AckedSink, AckTup, AckedSourceMagnet, AckedSource}
-import scala.concurrent.ExecutionContext
-
-import scala.concurrent.Promise
+import akka.stream.scaladsl.{Sink, Source, RunnableGraph}
+import com.timcharper.acked._
+import scala.compat.java8.FutureConverters
+import scala.concurrent.{Future, ExecutionContext, Promise}
 
 
 /**
@@ -29,4 +30,17 @@ object ScalaHelper {
     }
     (p,str)
   }
+
+  def printingAckedSink(implicit ec: ExecutionContext): AckedSink[String, CompletionStage[Void]] = {
+    AckedFlow[String].
+      map(msg => println("[PRINTING SINK] recieved at sink "+msg)).
+      toMat(AckedSink.ack)(combiner)
+  }
+
+  def combiner(ignored: Any, f: Future[Unit])(implicit ec: ExecutionContext) = FutureConverters.toJava(f.map(_ => null).mapTo[Void])
+
+  def connect[In, MI, MO](source: AckedSource[In, MI], sink: AckedSink[In, MO]):  RunnableGraph[akka.japi.Pair[MI, MO]] = {
+    source.toMat(sink)(akka.japi.Pair.create)
+  }
 }
+

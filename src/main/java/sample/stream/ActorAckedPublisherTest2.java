@@ -27,8 +27,9 @@ public class ActorAckedPublisherTest2 extends AbstractActorPublisher<Tuple2<Prom
                 }).
                 match(ActorPublisherMessage.Cancel.class, cancel -> context().stop(self())).
                 matchEquals("Stop", ev -> {
-                    System.out.println("Stopping the PUBLISHER");
+                    System.out.println("Stopping the PUBLISHER [recieved stop signal in Pub]");
                     onCompleteThenStop();
+                    context().stop(self());
                 }).
                 match(String.class, msgStr -> {
                     System.out.println("  msg accepted to flow [" + msgStr + "] while  demanded: " + totalDemand());

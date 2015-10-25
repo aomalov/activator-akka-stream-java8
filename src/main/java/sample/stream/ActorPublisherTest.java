@@ -14,6 +14,7 @@ import akka.stream.javadsl.Keep;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import akka.util.Timeout;
+import com.timcharper.acked.AckedSink;
 import org.reactivestreams.Publisher;
 import scala.concurrent.Await;
 import scala.concurrent.ExecutionContext;
@@ -25,6 +26,7 @@ import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -234,26 +236,62 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         final ActorSystem system = ActorSystem.create("Sys");
         final ActorMaterializer mat = ActorMaterializer.create(system);
         final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest2.props());
+        final ActorRef refStopper = system.actorOf(AckedPublisherStopper.props(ackedMat));
         final ExecutionContext ec=system.dispatcher();
 
         //final Source<Tuple2<Promise<BoxedUnit>,String>, ActorRef> src2 = Source.actorPublisher(ActorAckedPublisherTest2.props());
         //AckedSource<String,ActorRef> src3= ScalaHelper.javaPublisherAckedSource(src2.asScala());
-        ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);
+
+
+        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.printingAckedSink(system.dispatcher());
+        //ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);  //No acked sink is needed
+
+        Pair<BoxedUnit,CompletionStage<Void>> flowMgr= ScalaHelper.connect(ScalaHelper.javaPublisherAckedSource(ackedMat), ackedSink).run(mat);
+        flowMgr.second().handle((ok, ex) -> {
+            if (ok == null) {
+                System.out.println("+++COMPLETION STAGE successful - " + ok);
+                return 1;
+            } else {
+                System.out.println("++++Problem in COMPLETION STAGE-" + ex);
+                return 0;
+            }
+        });
+
+
         ackedMat.tell("test2", ActorRef.noSender());
 
         //akka.dispatch.Futures.future - and also Promise is there in the Package for the sake of convenience
         scala.concurrent.Future<scala.concurrent.Future<BoxedUnit>> future = Patterns.ask(ackedMat, "test with Callback", new Timeout(300, TimeUnit.MICROSECONDS))
                 .mapTo(ClassTag$.MODULE$.apply(scala.concurrent.Future.class));
         //Wait to get the CF to acknowledgement promise
-        scala.concurrent.Future<BoxedUnit> responseFuture = Await.result(future, new FiniteDuration(2, TimeUnit.MILLISECONDS));
+        scala.concurrent.Future<BoxedUnit> responseFuture = Await.result(future, new FiniteDuration(20, TimeUnit.MILLISECONDS));
         //Wait till ack is completed actually or set a hook
         responseFuture.onSuccess(new OnSuccess<BoxedUnit>() {
             public void onSuccess(BoxedUnit result) {
                 System.out.println("GOT the [test] SUCCESS ACK hook");
-                ackedMat.tell("Stop",ActorRef.noSender());
-                system.shutdown();
+                //ackedMat.tell("Stop",ActorRef.noSender());
+                //system.shutdown();
             }
         }, ec);
+
+
+        Thread.sleep(5000);
+        scala.concurrent.Future<CompletionStage<Void>> future2 = Patterns.ask(refStopper, "Stop", new Timeout(300, TimeUnit.MICROSECONDS))
+                .mapTo(ClassTag$.MODULE$.apply(CompletionStage.class));
+        CompletionStage<Void> csCompleted = Await.result(future2, new FiniteDuration(20, TimeUnit.MILLISECONDS));
+        csCompleted.handle((ok, ex) -> {
+            if (ok == null) {
+                System.out.println("+++Publication STOPPING successful - " + ok);
+                system.shutdown();
+                return 1;
+            } else {
+                System.out.println("++++Problem in Publication STOPPING-" + ex);
+                return 0;
+            }
+        });
+
+
+
         //Await.result(responseFuture, new FiniteDuration(2, TimeUnit.SECONDS));
         //System.out.println("Got the ACK completion result: ");
     }
