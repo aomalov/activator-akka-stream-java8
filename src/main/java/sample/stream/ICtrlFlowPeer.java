@@ -7,6 +7,6 @@ import java.util.concurrent.Future;
  */
 public interface ICtrlFlowPeer
 {
-    boolean onSyncMessage(byte[] message);
-    void onAsyncMessage(byte[] message, Future<?> future);
+    void onSyncMessage(byte[] message);
+    //void onAsyncMessage(byte[] message, Future<?> future);
 }

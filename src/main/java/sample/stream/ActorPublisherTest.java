@@ -23,6 +23,7 @@ import scala.reflect.ClassTag$;
 import scala.runtime.BoxedUnit;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -36,18 +37,17 @@ import java.util.concurrent.TimeUnit;
 public class ActorPublisherTest implements  ICtrlFlowPeer {
     
     private static  ActorRef refPublisherActor;
-    
-    @Override
-    public boolean onSyncMessage(byte[] message) {
-        refPublisherActor.tell(new JobManagerProtocol.Job(message.toString()),ActorRef.noSender());
-        return true;
-    }
 
     @Override
-    public void onAsyncMessage(byte[] message, Future<?> future) {
-        //TODO Adapt to Acked Source - but follow Ack propagation just only if Async is required
-        throw new NotImplementedException();
+    public void onSyncMessage(byte[] message) {
+        System.out.println("[APP] got the message "+new String(message, Charset.defaultCharset()));
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
+
 
     public static class JobManagerProtocol {
         final public static class Job {
@@ -194,7 +194,7 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         refPublisherActor.tell(new JobManagerProtocol.Job("kkk"), ActorRef.noSender());
     }
 
-    static void testAckedActors() throws Exception {
+    public static void testAckedActors() throws Exception {
         final ActorSystem system = ActorSystem.create("Sys");
         final ActorMaterializer mat = ActorMaterializer.create(system);
         final ActorRef ackedMat;
@@ -232,7 +232,7 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
 
     }
 
-    public static void testAckedLibSource() throws Exception {
+    public static void testAckedLibSource(ActorPublisherTest testerApp) throws Exception {
         final ActorSystem system = ActorSystem.create("Sys");
         final ActorMaterializer mat = ActorMaterializer.create(system);
         final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest2.props());
@@ -243,7 +243,7 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         //AckedSource<String,ActorRef> src3= ScalaHelper.javaPublisherAckedSource(src2.asScala());
 
 
-        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.printingAckedSink(system.dispatcher());
+        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
         //ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);  //No acked sink is needed
 
         Pair<BoxedUnit,CompletionStage<Void>> flowMgr= ScalaHelper.connect(ScalaHelper.javaPublisherAckedSource(ackedMat), ackedSink).run(mat);
@@ -289,19 +289,13 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
                 return 0;
             }
         });
-
-
-
-        //Await.result(responseFuture, new FiniteDuration(2, TimeUnit.SECONDS));
-        //System.out.println("Got the ACK completion result: ");
     }
 
     public static void main(String[] args) throws Exception {
 
         //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
 
-        testAckedLibSource();
-
+        testAckedLibSource(new ActorPublisherTest());
 
         //testAckedActors();
         //testGenericActors();

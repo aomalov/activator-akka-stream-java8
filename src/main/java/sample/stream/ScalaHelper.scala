@@ -37,6 +37,15 @@ object ScalaHelper {
       toMat(AckedSink.ack)(combiner)
   }
 
+  def ctrlAPPAckedSink(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer): AckedSink[String, CompletionStage[Void]] = {
+    AckedFlow[String].
+      map(msg => {
+        flowPeerAPP.onSyncMessage(msg.getBytes())
+      }).
+      toMat(AckedSink.ack)(combiner)
+  }
+
+
   def combiner(ignored: Any, f: Future[Unit])(implicit ec: ExecutionContext) = FutureConverters.toJava(f.map(_ => null).mapTo[Void])
 
   def connect[In, MI, MO](source: AckedSource[In, MI], sink: AckedSink[In, MO]):  RunnableGraph[akka.japi.Pair[MI, MO]] = {

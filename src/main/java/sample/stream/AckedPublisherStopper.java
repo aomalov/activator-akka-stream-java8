@@ -6,13 +6,6 @@ import akka.actor.Props;
 import akka.actor.Terminated;
 import akka.japi.Creator;
 import akka.japi.pf.ReceiveBuilder;
-import akka.stream.actor.ActorPublisherMessage;
-import scala.Tuple2;
-import scala.concurrent.Promise;
-import scala.runtime.BoxedUnit;
-
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
