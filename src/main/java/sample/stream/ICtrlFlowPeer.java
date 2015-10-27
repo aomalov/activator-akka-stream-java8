@@ -1,5 +1,8 @@
 package sample.stream;
 
+import scala.runtime.BoxedUnit;
+
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
 /**
@@ -7,6 +10,6 @@ import java.util.concurrent.Future;
  */
 public interface ICtrlFlowPeer
 {
-    void onSyncMessage(byte[] message);
+    void onNext(byte[] message,CompletableFuture<Void> cfPromise);
     //void onAsyncMessage(byte[] message, Future<?> future);
 }

@@ -15,9 +15,13 @@ import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import akka.util.Timeout;
 import com.timcharper.acked.AckedSink;
+import com.timcharper.acked.AckedSource;
 import org.reactivestreams.Publisher;
+import scala.Unit;
+import scala.compat.java8.FutureConverters;
 import scala.concurrent.Await;
 import scala.concurrent.ExecutionContext;
+import scala.concurrent.Promise;
 import scala.concurrent.duration.FiniteDuration;
 import scala.reflect.ClassTag$;
 import scala.runtime.BoxedUnit;
@@ -39,11 +43,15 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
     private static  ActorRef refPublisherActor;
 
     @Override
-    public void onSyncMessage(byte[] message) {
-        System.out.println("[APP] got the message "+new String(message, Charset.defaultCharset()));
+    public void onNext(byte[] message,CompletableFuture<Void> cfPromise) {
+
         try {
+            //do something on the delivered message
             Thread.sleep(1000);
+            System.out.println("[APP] got the message "+new String(message, Charset.defaultCharset()));
+            if(cfPromise!=null) cfPromise.complete(null);
         } catch (InterruptedException e) {
+            if(cfPromise!=null) cfPromise.completeExceptionally(e);
             e.printStackTrace();
         }
     }
@@ -243,7 +251,9 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         //AckedSource<String,ActorRef> src3= ScalaHelper.javaPublisherAckedSource(src2.asScala());
 
 
-        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+        //AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink2(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+
         //ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);  //No acked sink is needed
 
         Pair<BoxedUnit,CompletionStage<Void>> flowMgr= ScalaHelper.connect(ScalaHelper.javaPublisherAckedSource(ackedMat), ackedSink).run(mat);
@@ -291,9 +301,25 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         });
     }
 
+    public static CompletableFuture<Void> getCFInitialized(Promise<Unit> p) {
+        CompletableFuture<Void> res=new CompletableFuture<>();
+
+        res.handle((ok, ex) -> {
+            if (ok == null) {
+                System.out.println("**** CF completed from the APP - now ACK fulfills the promise");
+                p.success(null);
+            }
+            else p.failure(ex);
+            return null;
+        });
+
+        return res;
+    }
+
     public static void main(String[] args) throws Exception {
 
         //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
+        //now got pair of CompletionStage
 
         testAckedLibSource(new ActorPublisherTest());
 

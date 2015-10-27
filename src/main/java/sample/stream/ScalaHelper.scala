@@ -1,10 +1,10 @@
 package sample.stream
 
-import java.util.concurrent.CompletionStage
+import java.util.concurrent.{CompletableFuture, CompletionStage}
 
 import akka.actor.ActorRef
 import akka.stream.actor.ActorPublisher
-import akka.stream.scaladsl.{Sink, Source, RunnableGraph}
+import akka.stream.scaladsl.{Flow, Sink, Source, RunnableGraph}
 import com.timcharper.acked._
 import scala.compat.java8.FutureConverters
 import scala.concurrent.{Future, ExecutionContext, Promise}
@@ -40,10 +40,31 @@ object ScalaHelper {
   def ctrlAPPAckedSink(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer): AckedSink[String, CompletionStage[Void]] = {
     AckedFlow[String].
       map(msg => {
-        flowPeerAPP.onSyncMessage(msg.getBytes())
+        flowPeerAPP.onNext(msg.getBytes(),null)
       }).
       toMat(AckedSink.ack)(combiner)
+    //AckedSink.apply()
   }
+
+  def ctrlAPPAckedSink2(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer): AckedSink[String, CompletionStage[Void]] = {
+
+    AckedSink[String,CompletionStage[Void]] {
+      Sink.foreach[AckTup[String]] {
+        case (p:Promise[Unit],msg:String)=> flowPeerAPP.onNext(msg.getBytes,ActorPublisherTest.getCFInitialized(p))
+      }.mapMaterializedValue({f=> FutureConverters.toJava(f.map(_ => null).mapTo[Void])})
+    }
+  }
+
+//    Sink.foreach(case (p,data)=>{p.success(())})
+//    AckedFlow[String].wrappedRepr.map {
+//      case (p,msg)=>{
+//        flowPeerAPP.onNext(msg.getBytes(),ActorPublisherTest.getCFInitialized(p))
+//      }
+//      (p,msg)
+//    }.
+//
+//      .toMat(Sink.ignore)(combiner)
+//  }
 
 
   def combiner(ignored: Any, f: Future[Unit])(implicit ec: ExecutionContext) = FutureConverters.toJava(f.map(_ => null).mapTo[Void])
