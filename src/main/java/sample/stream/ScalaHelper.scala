@@ -37,20 +37,20 @@ object ScalaHelper {
       toMat(AckedSink.ack)(combiner)
   }
 
-  def ctrlAPPAckedSink(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer): AckedSink[String, CompletionStage[Void]] = {
+  def ctrlAPPAckedSink(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer[String]): AckedSink[String, CompletionStage[Void]] = {
     AckedFlow[String].
       map(msg => {
-        flowPeerAPP.onNext(msg.getBytes(),null)
+        flowPeerAPP.onNext(msg,null)
       }).
       toMat(AckedSink.ack)(combiner)
     //AckedSink.apply()
   }
 
-  def ctrlAPPAckedSink2(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer): AckedSink[String, CompletionStage[Void]] = {
+  def ctrlAPPAckedSink2(implicit ec: ExecutionContext,flowPeerAPP: ICtrlFlowPeer[String]): AckedSink[String, CompletionStage[Void]] = {
 
     AckedSink[String,CompletionStage[Void]] {
       Sink.foreach[AckTup[String]] {
-        case (p:Promise[Unit],msg:String)=> flowPeerAPP.onNext(msg.getBytes,ActorPublisherTest.getCFInitialized(p))
+        case (p:Promise[Unit],msg:String)=> flowPeerAPP.onNext(msg,ActorPublisherTest.getCFInitialized(p))
       }.mapMaterializedValue({f=> FutureConverters.toJava(f.map(_ => null).mapTo[Void])})
     }
   }

@@ -38,17 +38,17 @@ import java.util.concurrent.TimeUnit;
 /**
  * Created by andrewm on 10/14/2015.
  */
-public class ActorPublisherTest implements  ICtrlFlowPeer {
+public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
     
     private static  ActorRef refPublisherActor;
 
     @Override
-    public void onNext(byte[] message,CompletableFuture<Void> cfPromise) {
+    public void onNext(String message,CompletableFuture<Void> cfPromise) {
 
         try {
             //do something on the delivered message
             Thread.sleep(1000);
-            System.out.println("[APP] got the message "+new String(message, Charset.defaultCharset()));
+            System.out.println("[APP] got the message "+message);
             if(cfPromise!=null) cfPromise.complete(null);
         } catch (InterruptedException e) {
             if(cfPromise!=null) cfPromise.completeExceptionally(e);
@@ -56,6 +56,15 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         }
     }
 
+
+    public static class simpleSyncAppReciever extends SyncAppReceiver<String> {
+
+        @Override
+        void receive(String msg) throws Exception {
+            System.out.println("[Simple APP] got the message into simple stub "+msg);
+            Thread.sleep(1000); //do something
+    }
+    }
 
     public static class JobManagerProtocol {
         final public static class Job {
@@ -240,7 +249,7 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
 
     }
 
-    public static void testAckedLibSource(ActorPublisherTest testerApp) throws Exception {
+    public static void testAckedLibSource(ICtrlFlowPeer<String> testerApp) throws Exception {
         final ActorSystem system = ActorSystem.create("Sys");
         final ActorMaterializer mat = ActorMaterializer.create(system);
         final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest2.props());
@@ -321,7 +330,8 @@ public class ActorPublisherTest implements  ICtrlFlowPeer {
         //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
         //now got pair of CompletionStage
 
-        testAckedLibSource(new ActorPublisherTest());
+        //testAckedLibSource(new ActorPublisherTest());
+        testAckedLibSource(new simpleSyncAppReciever());
 
         //testAckedActors();
         //testGenericActors();
