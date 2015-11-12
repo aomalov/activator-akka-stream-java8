@@ -8,15 +8,25 @@ import akka.pattern.Patterns;
 import akka.actor.Props;
 import akka.japi.pf.ReceiveBuilder;
 import akka.stream.ActorMaterializer;
+import akka.stream.Graph;
 import akka.stream.actor.AbstractActorPublisher;
 import akka.stream.actor.ActorPublisherMessage;
+import akka.stream.javadsl.Flow;
 import akka.stream.javadsl.Keep;
+import akka.stream.scaladsl.RunnableGraph;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import akka.util.Timeout;
+import com.timcharper.acked.AckedFlow;
 import com.timcharper.acked.AckedSink;
 import com.timcharper.acked.AckedSource;
+
+
+import com.timcharper.acked.AckedSourceMagnet;
+import com.traiana.ctrl.ICtrlTransformer;
+
 import org.reactivestreams.Publisher;
+import scala.Tuple2;
 import scala.Unit;
 import scala.compat.java8.FutureConverters;
 import scala.concurrent.Await;
@@ -25,15 +35,19 @@ import scala.concurrent.Promise;
 import scala.concurrent.duration.FiniteDuration;
 import scala.reflect.ClassTag$;
 import scala.runtime.BoxedUnit;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
-import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 
 /**
  * Created by andrewm on 10/14/2015.
@@ -47,8 +61,10 @@ public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
 
         try {
             //do something on the delivered message
-            Thread.sleep(1000);
+
             System.out.println("[APP] got the message "+message);
+            Thread.sleep(2000);
+            System.out.println("now completing the promise on sub");
             if(cfPromise!=null) cfPromise.complete(null);
         } catch (InterruptedException e) {
             if(cfPromise!=null) cfPromise.completeExceptionally(e);
@@ -260,8 +276,8 @@ public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
         //AckedSource<String,ActorRef> src3= ScalaHelper.javaPublisherAckedSource(src2.asScala());
 
 
-        //AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
-        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink2(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+        AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+        //AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink2(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
 
         //ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);  //No acked sink is needed
 
@@ -276,6 +292,72 @@ public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
             }
         });
 
+
+        ackedMat.tell("test2", ActorRef.noSender());
+
+        //akka.dispatch.Futures.future - and also Promise is there in the Package for the sake of convenience
+        scala.concurrent.Future<CompletionStage<Void>> future = Patterns.ask(ackedMat, "test with Callback", new Timeout(300, TimeUnit.MICROSECONDS))
+                .mapTo(ClassTag$.MODULE$.apply(CompletionStage.class));
+        //Wait to get the CF to acknowledgement promise
+        CompletionStage<Void> responseFuture = Await.result(future, new FiniteDuration(200, TimeUnit.MILLISECONDS));
+
+        responseFuture.handle((ok, ex) -> {
+            if (ok == null) {
+                System.out.println("GOT the [test] SUCCESS ACK hook from a Converted Future");
+                //system.shutdown();
+                return 1;
+            } else {
+                System.out.println("++++Problem in Publication STOPPING-" + ex);
+                return 0;
+            }
+        });
+
+        //Wait till ack is completed actually or set a hook
+//        responseFuture.onSuccess(new OnSuccess<BoxedUnit>() {
+//            public void onSuccess(BoxedUnit result) {
+//                System.out.println("GOT the [test] SUCCESS ACK hook");
+//                //ackedMat.tell("Stop",ActorRef.noSender());
+//                //system.shutdown();
+//            }
+//        }, ec);
+
+
+        Thread.sleep(9000);
+        scala.concurrent.Future<CompletionStage<Void>> future2 = Patterns.ask(refStopper, "Stop", new Timeout(300, TimeUnit.MICROSECONDS))
+                .mapTo(ClassTag$.MODULE$.apply(CompletionStage.class));
+        CompletionStage<Void> csCompleted = Await.result(future2, new FiniteDuration(20, TimeUnit.MILLISECONDS));
+        csCompleted.handle((ok, ex) -> {
+            if (ok == null) {
+                System.out.println("+++Publication STOPPING successful - " + ok);
+                system.shutdown();
+                return 1;
+            } else {
+                System.out.println("++++Problem in Publication STOPPING-" + ex);
+                return 0;
+            }
+        });
+    }
+
+    public static void testAckedPubSub() throws Exception{
+        final ActorSystem system = ActorSystem.create("Sys");
+        final ActorMaterializer mat = ActorMaterializer.create(system);
+        final ActorRef ackedMat = system.actorOf(ActorAckedPublisherTest2.props());
+        final ActorRef refStopper = system.actorOf(AckedPublisherStopper.props(ackedMat));
+        final ActorRef ackedSub = system.actorOf(ActorAckedSubscriberTest2.props());
+
+        final ExecutionContext ec=system.dispatcher();
+
+        //final Source<Tuple2<Promise<BoxedUnit>,String>, ActorRef> src2 = Source.actorPublisher(ActorAckedPublisherTest2.props());
+        //AckedSource<String,ActorRef> src3= ScalaHelper.javaPublisherAckedSource(src2.asScala());
+
+
+        //AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+        //AckedSink<String, CompletionStage<Void>> ackedSink = ScalaHelper.ctrlAPPAckedSink2(system.dispatcher(),testerApp);  //.printingAckedSink(system.dispatcher());
+        AckedSink<String, BoxedUnit> ackedSink = ScalaHelper.javaSubscriberAckedSink(ackedSub);
+
+        //ScalaHelper.javaPublisherAckedSource(ackedMat).runAck(mat);  //No acked sink is needed
+
+        ScalaHelper.connect(ScalaHelper.javaPublisherAckedSource(ackedMat), ackedSink).run(mat);
 
         ackedMat.tell("test2", ActorRef.noSender());
 
@@ -330,14 +412,50 @@ public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
         //TODO - Pair<CtrlFlowSubscription,CompletionStage> - to work with Acked flow
         //now got pair of CompletionStage
 
-        //testAckedLibSource(new ActorPublisherTest());
-        testAckedLibSource(new simpleSyncAppReciever());
+        testExternalTransformers();
 
-        //testAckedActors();
-        //testGenericActors();
     }
 
+    public static void testExternalTransformers() throws IOException, ClassNotFoundException, NoSuchMethodException, InstantiationException, IllegalAccessException, java.lang.reflect.InvocationTargetException {
+        final ActorSystem system = ActorSystem.create("Sys");
+        final ActorMaterializer mat = ActorMaterializer.create(system);
+        List<ICtrlTransformer> transformers=new ArrayList<>();
 
+
+        File directory = new File("D:/Tmp/");
+        if (directory.exists()) {
+            // Get the list of the files contained in the package
+            String[] files = directory.list(new FilenameFilter() {
+                @Override
+                public boolean accept(File dir, String name) {
+                    return name.endsWith("jar");
+                }
+            });
+            for (int i = 0; i < files.length; i++) {
+                Manifest m = new JarFile("D:/Tmp/transformers_1.jar").getManifest();
+                if (m.getEntries().size() == 1)
+                    m.getEntries().forEach((k, v) -> System.out.println("[" + k + "]  " + v.getValue("Transformer") + " " + v.getValue("Version")));
+            }
+        }
+
+
+        URLClassLoader urlcl = URLClassLoader.newInstance(new URL[] {new URL("file:///D:/Tmp/transformers_1.jar" )});
+        for (String tranClass: new String[] {"com.traiana.ctrl.Transformer1","com.traiana.ctrl.Transformer2"}) {
+            Class<?> reflClass = urlcl.loadClass(tranClass);
+            Class<? extends ICtrlTransformer> transformerClass = reflClass.asSubclass(ICtrlTransformer.class);
+            Constructor<? extends ICtrlTransformer> ctor = transformerClass.getConstructor(String.class);
+            ICtrlTransformer transformerInstance = ctor.newInstance(tranClass);
+            transformerInstance.init(tranClass,Integer.parseInt(tranClass.substring(tranClass.length()-1)));
+            transformers.add(transformerInstance);
+        }
+
+        final AckedSource<String,BoxedUnit> ackedSource = ScalaHelper.IterableAckedSource(Arrays.asList("0_test tran","1_test tran","2_test tran"))
+                .via(ScalaHelper.setupAckTracker(system.dispatcher()));
+        final AckedSource<String,BoxedUnit> ackedPartialGraph =  ScalaHelper.addToGraph(ackedSource,ScalaHelper.convertJavaList(transformers),0,transformers.size(),system.dispatcher());
+
+        final RunnableGraph<BoxedUnit> runnableGraph= ackedPartialGraph.to(AckedSink.ack());
+        runnableGraph.run(mat);
+    }
 
 
 }

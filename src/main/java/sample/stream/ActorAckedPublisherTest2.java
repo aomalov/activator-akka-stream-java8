@@ -5,6 +5,7 @@ import akka.japi.pf.ReceiveBuilder;
 import akka.stream.actor.AbstractActorPublisher;
 import akka.stream.actor.ActorPublisherMessage;
 import scala.Tuple2;
+import scala.compat.java8.FutureConverters;
 import scala.concurrent.Promise;
 import scala.runtime.BoxedUnit;
 
@@ -35,8 +36,9 @@ public class ActorAckedPublisherTest2 extends AbstractActorPublisher<Tuple2<Prom
                     System.out.println("  msg accepted to flow [" + msgStr + "] while  demanded: " + totalDemand());
                     Tuple2<Promise<BoxedUnit>, String> msg = ScalaHelper.createAckTup(context().dispatcher(), msgStr);
                     if (sender() != context().system().deadLetters()) {
-                        sender().tell(msg._1().future(), self()); //return the Future to wait on
-                        System.out.println("Sending SCALA Future on [" + msgStr + "] back to " + sender());
+                        //sender().tell(msg._1().future(), self()); //return the Future to wait on
+                        sender().tell(FutureConverters.toJava(msg._1().future()), self());
+                        System.out.println("Sending SCALA Future on [" + msgStr + "] /" +msg._1().future().isCompleted()+"/ back to " + sender());
                     }
                     if (buf.isEmpty() && totalDemand() > 0) {
                         System.out.println("deliver without buf - " + msg._2());
