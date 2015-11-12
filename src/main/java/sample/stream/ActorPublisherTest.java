@@ -57,9 +57,11 @@ public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
     private static  ActorRef refPublisherActor;
 
     @Override
-    public void onNext(String message,CompletableFuture<Void> cfPromise) {
+    public void onNext(String message,CompletionStage<Void> cfPromiseStage) {
 
+        CompletableFuture<Void> cfPromise=null;
         try {
+            cfPromise=cfPromiseStage.toCompletableFuture();
             //do something on the delivered message
 
             System.out.println("[APP] got the message "+message);
@@ -77,7 +79,7 @@ public class ActorPublisherTest implements  ICtrlFlowPeer<String> {
 
         @Override
         void receive(String msg) throws Exception {
-            System.out.println("[Simple APP] got the message into simple stub "+msg);
+            System.out.println("[Simple APP] got the message into simple stub ["+msg+"]");
             Thread.sleep(1000); //do something
     }
     }
